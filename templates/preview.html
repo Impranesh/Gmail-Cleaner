@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Preview Emails</title>
+    <style>
+      body {
+        font-family: Arial;
+        background: #f4f6f9;
+        padding: 40px;
+      }
+      .box {
+        background: white;
+        padding: 30px;
+        border-radius: 10px;
+        width: 700px;
+        margin: auto;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+      .mailCard {
+        padding: 10px;
+        border-bottom: 1px solid #ddd;
+      }
+      button {
+        background: #d9534f;
+        color: white;
+        padding: 8px 15px;
+        border: none;
+        border-radius: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <h2>📧 Email Preview</h2>
+      <form action="/confirm_delete" method="post">
+        {% for mail in mails %}
+        <div class="mailCard">
+          <input type="checkbox" name="ids" value="{{ mail.id }}" checked />
+          <b>{{ mail.subject }}</b><br />
+          <small>{{ mail.from }}</small>
+        </div>
+        {% endfor %}
+        <br />
+        <button type="submit">Confirm Delete</button>
+      </form>
+    </div>
+  </body>
+</html>
