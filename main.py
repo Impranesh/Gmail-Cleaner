@@ -10,12 +10,10 @@ app = FastAPI()
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
-REDIRECT_URI = os.environ.get(
-    "REDIRECT_URI",
-    "https://gmail-cleaner-latest.onrender.com/auth/callback"
-)
+REDIRECT_URI = os.environ.get("REDIRECT_URI")
 
-CLIENT_SECRETS_FILE = os.environ.get('CLIENT_SECRETS_FILE', 'cred_web.json')
+client_config_json = os.environ.get("GOOGLE_CLIENT_CONFIG_JSON")
+client_config = json.loads(client_config_json)
 
 # ---------------- HOME PAGE ----------------
 @app.get("/", response_class=HTMLResponse)
@@ -75,8 +73,8 @@ def start(response: Response,
     queries = [q + time_filter for q in selected]
     os.environ['CLEAN_QUERIES'] = ",".join(queries)
 
-    flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE,
+    flow = Flow.from_client_config(
+        client_config,
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
@@ -90,8 +88,8 @@ def start(response: Response,
 @app.get("/auth/callback")
 def callback(request: Request, oauth_state: str = Cookie(None)):
 
-    flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE,
+    flow = Flow.from_client_config(
+        client_config,
         scopes=SCOPES,
         state=oauth_state,
         redirect_uri=REDIRECT_URI
