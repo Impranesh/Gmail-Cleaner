@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
   <head>
-    <title>Preview Emails</title>
+    <title>Preview Emails Before Delete</title>
     <style>
       body {
         font-family: Arial;
@@ -12,36 +12,131 @@
         background: white;
         padding: 30px;
         border-radius: 10px;
-        width: 700px;
+        width: 800px;
         margin: auto;
         box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
       }
+      .stats {
+        background: #e8f4f8;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+      }
+      .stat-item {
+        text-align: center;
+      }
+      .stat-number {
+        font-size: 24px;
+        font-weight: bold;
+        color: #4285f4;
+      }
+      .stat-label {
+        font-size: 12px;
+        color: #666;
+      }
       .mailCard {
-        padding: 10px;
-        border-bottom: 1px solid #ddd;
+        padding: 12px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        margin-bottom: 8px;
+        background: #f9f9f9;
+      }
+      .mailCard:hover {
+        background: #f0f0f0;
+      }
+      .spam-badge {
+        display: inline-block;
+        background: #ff6b6b;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 3px;
+        font-size: 11px;
+        margin-left: 8px;
+      }
+      .spam-score {
+        color: #ff6b6b;
+        font-weight: bold;
+      }
+      .buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
       }
       button {
-        background: #d9534f;
-        color: white;
-        padding: 8px 15px;
+        padding: 10px 20px;
         border: none;
         border-radius: 5px;
+        cursor: pointer;
+        flex: 1;
+        font-size: 14px;
+      }
+      .confirm-btn {
+        background: #28a745;
+        color: white;
+      }
+      .confirm-btn:hover {
+        background: #218838;
+      }
+      .cancel-btn {
+        background: #ccc;
+        color: #333;
+      }
+      .cancel-btn:hover {
+        background: #bbb;
+      }
+      .info-box {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 5px;
+        padding: 10px;
+        margin-bottom: 15px;
+        font-size: 13px;
       }
     </style>
   </head>
   <body>
     <div class="box">
-      <h2>📧 Email Preview</h2>
-      <form action="/confirm_delete" method="post">
-        {% for mail in mails %}
-        <div class="mailCard">
-          <input type="checkbox" name="ids" value="{{ mail.id }}" checked />
-          <b>{{ mail.subject }}</b><br />
-          <small>{{ mail.from }}</small>
+      <h2>📧 Email Preview Before Delete</h2>
+      
+      <div class="info-box">
+        Review the emails below before confirming deletion. Deleted emails will be moved to trash.
+      </div>
+      
+      <div class="stats">
+        <div class="stat-item">
+          <div class="stat-number">{{ total }}</div>
+          <div class="stat-label">Total Emails</div>
         </div>
-        {% endfor %}
-        <br />
-        <button type="submit">Confirm Delete</button>
+        <div class="stat-item">
+          <div class="stat-number">{{ spam_count }}</div>
+          <div class="stat-label">Potential Spam</div>
+        </div>
+      </div>
+
+      <form action="/confirm_delete" method="post">
+        <div style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px; padding: 10px;">
+          {% for mail in mails %}
+          <div class="mailCard">
+            <input type="checkbox" name="ids" value="{{ mail.id }}" checked />
+            <b>{{ mail.subject }}</b>
+            {% if mail.is_spam %}
+              <span class="spam-badge">SPAM {{ mail.spam_score }}%</span>
+            {% endif %}
+            <br />
+            <small style="color: #666;">From: {{ mail.from }}</small>
+            <br />
+            <small style="color: #999;">{{ mail.date }}</small>
+          </div>
+          {% endfor %}
+        </div>
+        
+        <div class="buttons">
+          <button type="button" class="cancel-btn" onclick="history.back()">Cancel</button>
+          <button type="submit" class="confirm-btn">Confirm Delete {{ total }} Emails</button>
+        </div>
       </form>
     </div>
   </body>

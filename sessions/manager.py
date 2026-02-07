@@ -3,18 +3,28 @@ Session management - in-memory session store for user sessions.
 """
 from typing import Dict, Any
 import secrets
+from datetime import datetime
 
 _sessions: Dict[str, Dict[str, Any]] = {}
 
 
-def create_session(queries: list, restore_enabled: bool) -> str:
+def create_session(
+    queries: list, 
+    restore_enabled: bool,
+    enable_spam_detection: bool = False,
+    enable_preview: bool = True
+) -> str:
     """Create a new session and return session ID."""
     session_id = secrets.token_hex(16)
     _sessions[session_id] = {
         "queries": queries,
         "restore_enabled": restore_enabled,
+        "enable_spam_detection": enable_spam_detection,
+        "enable_preview": enable_preview,
         "state": None,
-        "creds": None
+        "creds": None,
+        "cleanup_history": [],  # Track cleanup sessions for undo
+        "created_at": datetime.now().isoformat()
     }
     return session_id
 
@@ -28,6 +38,20 @@ def update_session(session_id: str, data: Dict[str, Any]) -> None:
     """Update session data."""
     if session_id in _sessions:
         _sessions[session_id].update(data)
+
+
+def add_cleanup_history(session_id: str, email_ids: list, total_deleted: int) -> None:
+    """Record a cleanup session for undo functionality."""
+    if session_id in _sessions:
+        cleanup_record = {
+            "timestamp": datetime.now().isoformat(),
+            "email_ids": email_ids,
+            "total_deleted": total_deleted
+        }
+        _sessions[session_id]["cleanup_history"].append(cleanup_record)
+        # Keep only last 5 cleanup sessions
+        if len(_sessions[session_id]["cleanup_history"]) > 5:
+            _sessions[session_id]["cleanup_history"].pop(0)
 
 
 def delete_session(session_id: str) -> None:
