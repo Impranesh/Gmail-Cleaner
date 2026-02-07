@@ -33,6 +33,10 @@
         color: white;
         border: none;
         border-radius: 5px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #357ae8;
       }
     </style>
   </head>
@@ -43,9 +47,7 @@
         <label
           ><input type="checkbox" name="unread" checked /> Unread Emails</label
         >
-        <label
-          ><input type="checkbox" name="promotions" checked /> Promotions</label
-        >
+        <label><input type="checkbox" name="promotions" /> Promotions</label>
         <label><input type="checkbox" name="social" /> Social</label>
         <label><input type="checkbox" name="updates" /> Updates</label>
 
@@ -57,7 +59,12 @@
           <option value="1y">1 Year</option>
         </select>
 
-        <button type="submit">Login & Scan</button>
+        <label
+          ><input type="checkbox" name="restore" checked /> 🔁 Enable Safety
+          Restore (Recommended)</label
+        >
+
+        <button type="submit">Login & Clean</button>
       </form>
     </div>
   </body>

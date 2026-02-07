@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Cleaning...</title>
+    <style>
+      body {
+        font-family: Arial;
+        background: #f4f6f9;
+        text-align: center;
+        padding: 40px;
+      }
+      .box {
+        background: white;
+        padding: 30px;
+        border-radius: 10px;
+        width: 500px;
+        margin: auto;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+      #barWrap {
+        background: #ddd;
+        height: 20px;
+        border-radius: 10px;
+        margin-top: 20px;
+      }
+      #bar {
+        height: 20px;
+        width: 0%;
+        background: #4285f4;
+        border-radius: 10px;
+      }
+      ul {
+        text-align: left;
+        max-height: 200px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <h2>🧹 Cleaning Your Inbox...</h2>
+      <div id="barWrap"><div id="bar"></div></div>
+      <p id="status">Starting...</p>
+      <ul id="log"></ul>
+    </div>
+
+    <script>
+      var source = new EventSource("/progress");
+      let percent = 0;
+      source.onmessage = function (event) {
+        let msg = event.data;
+        document.getElementById("status").innerText = msg;
+        document.getElementById("log").innerHTML += "<li>" + msg + "</li>";
+        percent += 5;
+        document.getElementById("bar").style.width =
+          Math.min(percent, 100) + "%";
+        if (msg.includes("DONE") || msg.includes("No matching emails")) {
+          source.close();
+          document.getElementById("bar").style.width = "100%";
+        }
+      };
+    </script>
+  </body>
+</html>
