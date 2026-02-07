@@ -79,6 +79,7 @@ SESSIONS = {}
 
 # ================= HOME PAGE =================
 @app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse)
 def home():
     return """
     <html>
@@ -97,7 +98,7 @@ def home():
             <h2>🧹 Gmail Cleaner Pro</h2>
             <form action="/start" method="post">
                 <label><input type="checkbox" name="unread" checked> Unread Emails</label>
-                <label><input type="checkbox" name="promotions" checked> Promotions</label>
+                <label><input type="checkbox" name="promotions"> Promotions</label>
                 <label><input type="checkbox" name="social"> Social</label>
                 <label><input type="checkbox" name="updates"> Updates</label>
 
@@ -109,6 +110,8 @@ def home():
                     <option value="1y">1 Year</option>
                 </select>
 
+                <label><input type="checkbox" name="restore" checked> 🔁 Enable Safety Restore (Recommended)</label>
+
                 <button type="submit">Login & Clean</button>
             </form>
         </div>
@@ -116,30 +119,58 @@ def home():
     </html>
     """
 
+
 # ================= START OAUTH =================
 @app.post("/start")
-def start(unread: str = Form(None), promotions: str = Form(None),
-          social: str = Form(None), updates: str = Form(None),
-          age: str = Form("")):
+def start(unread: str = Form(None),
+          promotions: str = Form(None),
+          social: str = Form(None),
+          updates: str = Form(None),
+          age: str = Form(""),
+          restore: str = Form(None)):
+
+    # GLOBAL SAFETY RULE → never delete read mails
+    base_filter = "is:unread"
 
     queries = []
-    if unread: queries.append("is:unread")
-    if promotions: queries.append("category:promotions")
-    if social: queries.append("category:social")
-    if updates: queries.append("category:updates")
 
+    # User selected filters
+    if unread:
+        queries.append(base_filter)
+
+    if promotions:
+        queries.append(f"{base_filter} category:promotions")
+
+    if social:
+        queries.append(f"{base_filter} category:social")
+
+    if updates:
+        queries.append(f"{base_filter} category:updates")
+
+    # Add age filter if selected
     if age:
         queries = [q + f" older_than:{age}" for q in queries]
 
+    # Create session
     session_id = secrets.token_hex(16)
-    SESSIONS[session_id] = {"queries": queries}
+    SESSIONS[session_id] = {
+        "queries": queries,
+        "restore_enabled": bool(restore)
+    }
 
-    flow = Flow.from_client_config(client_config, SCOPES, redirect_uri=REDIRECT_URI)
+    # Start OAuth flow
+    flow = Flow.from_client_config(
+        client_config,
+        SCOPES,
+        redirect_uri=REDIRECT_URI
+    )
+
     auth_url, state = flow.authorization_url(prompt='consent')
     SESSIONS[session_id]["state"] = state
 
     response = RedirectResponse(auth_url)
     response.set_cookie("session_id", session_id, httponly=True)
+
     return response
 
 # ================= CALLBACK =================
