@@ -90,9 +90,6 @@ jobs:
 
           echo "Authenticated with Docker Hub"
 
-          # Get registry token for direct manifest deletion
-          REGISTRY_TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:*" | jq -r '.token')
-
           # For PR builds: List all build-* tags with their digests
           TAGS_WITH_DIGESTS=$(curl -s -H "Authorization: JWT $TOKEN" \
             "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/?page_size=100" \
@@ -129,16 +126,18 @@ jobs:
                 if [ "$TAG_STATUS" = "204" ] || [ "$TAG_STATUS" = "200" ]; then
                   echo "  Tag deleted successfully"
                   
-                  # Step 2: Delete the manifest directly from registry (immediate effect)
+                  # Step 2: Try to delete the manifest directly from registry (immediate effect)
                   if [ -n "$TAG_DIGEST" ] && [ "$TAG_DIGEST" != "null" ]; then
                     MANIFEST_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
-                      -H "Authorization: Bearer $REGISTRY_TOKEN" \
+                      -u "${{ secrets.DOCKER_USERNAME }}:${{ secrets.DOCKER_PASSWORD }}" \
                       "https://registry-1.docker.io/v2/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/manifests/$TAG_DIGEST")
                     
                     if [ "$MANIFEST_STATUS" = "202" ]; then
                       echo "  Manifest deleted from registry (immediate effect)"
+                    elif [ "$MANIFEST_STATUS" = "401" ]; then
+                      echo "  Registry auth failed, relying on Docker Hub GC (24-48 hours)"
                     else
-                      echo "  Manifest deletion returned HTTP $MANIFEST_STATUS (may still queue)"
+                      echo "  Manifest deletion returned HTTP $MANIFEST_STATUS"
                     fi
                   fi
                 else
@@ -168,9 +167,6 @@ jobs:
           fi
 
           echo "Authenticated with Docker Hub"
-
-          # Get registry token for direct manifest deletion
-          REGISTRY_TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:*" | jq -r '.token')
 
           # List all build tags with their digests (sorted by number, newest first)
           TAGS_WITH_DIGESTS=$(curl -s -H "Authorization: JWT $TOKEN" \
@@ -210,16 +206,18 @@ jobs:
                 if [ "$TAG_STATUS" = "204" ] || [ "$TAG_STATUS" = "200" ]; then
                   echo "  Tag deleted successfully"
                   
-                  # Step 2: Delete the manifest directly from registry (immediate effect)
+                  # Step 2: Try to delete the manifest directly from registry (immediate effect)
                   if [ -n "$TAG_DIGEST" ] && [ "$TAG_DIGEST" != "null" ]; then
                     MANIFEST_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
-                      -H "Authorization: Bearer $REGISTRY_TOKEN" \
+                      -u "${{ secrets.DOCKER_USERNAME }}:${{ secrets.DOCKER_PASSWORD }}" \
                       "https://registry-1.docker.io/v2/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/manifests/$TAG_DIGEST")
                     
                     if [ "$MANIFEST_STATUS" = "202" ]; then
                       echo "  Manifest deleted from registry (immediate effect)"
+                    elif [ "$MANIFEST_STATUS" = "401" ]; then
+                      echo "  Registry auth failed, relying on Docker Hub GC (24-48 hours)"
                     else
-                      echo "  Manifest deletion returned HTTP $MANIFEST_STATUS (may still queue)"
+                      echo "  Manifest deletion returned HTTP $MANIFEST_STATUS"
                     fi
                   fi
                 else
