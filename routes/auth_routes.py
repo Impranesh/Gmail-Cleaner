@@ -50,7 +50,7 @@ def start(
     
     # Redirect to OAuth with session cookie
     response = RedirectResponse(auth_url)
-    response.set_cookie("session_id", session_id, httponly=True)
+    response.set_cookie("session_id", session_id, httponly=True, secure=True)
     
     return response
 
