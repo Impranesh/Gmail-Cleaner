@@ -110,33 +110,23 @@ jobs:
             
             while IFS= read -r TAG; do
               if [ -n "$TAG" ]; then
-                echo "  Deleting tag and image: $TAG"
+                echo "  Deleting tag: $TAG"
                 
-                # First, get the image digest for this tag
+                # Get the digest for tracking
                 DIGEST=$(curl -s -H "Authorization: JWT $TOKEN" \
                   "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/" \
                   2>/dev/null | jq -r '.images[0].digest // empty')
                 
-                # Delete the tag
+                # Delete the tag (this triggers garbage collection)
                 TAG_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
                   -H "Authorization: JWT $TOKEN" \
                   "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/")
                 
                 if [ "$TAG_STATUS" = "204" ] || [ "$TAG_STATUS" = "200" ]; then
-                  echo "  Deleted tag: $TAG"
-                  
-                  # If we got the digest and tag deletion succeeded, try to delete the image
                   if [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ]; then
-                    sleep 1  # Small delay before deleting image
-                    IMAGE_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
-                      -H "Authorization: JWT $TOKEN" \
-                      "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/images/$DIGEST/")
-                    
-                    if [ "$IMAGE_STATUS" = "204" ] || [ "$IMAGE_STATUS" = "200" ]; then
-                      echo "  Deleted image digest: ${DIGEST:0:12}..."
-                    else
-                      echo "  Image digest still in use or deletion pending: ${DIGEST:0:12}..."
-                    fi
+                    echo "  Deleted tag: $TAG (digest: ${DIGEST:0:12}...)"
+                  else
+                    echo "  Deleted tag: $TAG"
                   fi
                 else
                   echo "  Failed to delete tag $TAG (HTTP $TAG_STATUS)"
@@ -186,33 +176,23 @@ jobs:
             
             while IFS= read -r TAG; do
               if [ -n "$TAG" ]; then
-                echo "  Deleting tag and image: $TAG"
+                echo "  Deleting tag: $TAG"
                 
-                # First, get the image digest for this tag
+                # Get the digest for tracking
                 DIGEST=$(curl -s -H "Authorization: JWT $TOKEN" \
                   "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/" \
                   2>/dev/null | jq -r '.images[0].digest // empty')
                 
-                # Delete the tag
+                # Delete the tag (this triggers garbage collection)
                 TAG_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
                   -H "Authorization: JWT $TOKEN" \
                   "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/")
                 
                 if [ "$TAG_STATUS" = "204" ] || [ "$TAG_STATUS" = "200" ]; then
-                  echo "  Deleted tag: $TAG"
-                  
-                  # If we got the digest and tag deletion succeeded, try to delete the image
                   if [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ]; then
-                    sleep 1  # Small delay before deleting image
-                    IMAGE_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
-                      -H "Authorization: JWT $TOKEN" \
-                      "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/images/$DIGEST/")
-                    
-                    if [ "$IMAGE_STATUS" = "204" ] || [ "$IMAGE_STATUS" = "200" ]; then
-                      echo "  Deleted image digest: ${DIGEST:0:12}..."
-                    else
-                      echo "  Image digest still in use or deletion pending: ${DIGEST:0:12}..."
-                    fi
+                    echo "  Deleted tag: $TAG (digest: ${DIGEST:0:12}...)"
+                  else
+                    echo "  Deleted tag: $TAG"
                   fi
                 else
                   echo "  Failed to delete tag $TAG (HTTP $TAG_STATUS)"
