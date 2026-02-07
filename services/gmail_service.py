@@ -82,7 +82,7 @@ def restore_read_from_trash(service) -> int:
     while True:
         messages, next_page_token = list_messages(
             service,
-            q="in:trash -is:unread",
+            query="in:trash -is:unread",
             page_token=next_page_token
         )
         
