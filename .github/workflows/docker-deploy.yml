@@ -45,10 +45,10 @@ jobs:
 
       - name: Display Build Info
         run: |
-          echo "📦 Build Tag: ${{ env.BUILD_TAG }}"
-          echo "📝 Build Type: ${{ env.BUILD_TYPE }}"
-          echo "🔗 Event: ${{ github.event_name }}"
-          echo "🌿 Branch: ${{ github.ref_name }}"
+          echo "Build Tag: ${{ env.BUILD_TAG }}"
+          echo "Build Type: ${{ env.BUILD_TYPE }}"
+          echo "Event: ${{ github.event_name }}"
+          echo "Branch: ${{ github.ref_name }}"
 
       - name: Login to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
@@ -75,7 +75,7 @@ jobs:
       - name: Cleanup PR Build Images
         if: github.event_name == 'pull_request'
         run: |
-          echo "🧹 Starting PR build image cleanup..."
+          echo "Starting PR build image cleanup..."
 
           # Get Docker Hub API token
           TOKEN=$(curl -s -X POST \
@@ -84,20 +84,19 @@ jobs:
             https://hub.docker.com/v2/users/login/ | jq -r '.token // empty')
 
           if [ -z "$TOKEN" ]; then
-            echo "❌ Failed to authenticate with Docker Hub"
+            echo "Failed to authenticate with Docker Hub"
             exit 1
           fi
 
-          echo "✅ Authenticated with Docker Hub"
+          echo "Authenticated with Docker Hub"
 
-          # For PR builds: List all build-* tags except 'latest'
-          # Get all build tags, sort by number (newest first), then filter out 'latest'
+          # For PR builds: List all build-* tags
           ALL_TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
             "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/?page_size=100" \
             2>/dev/null | jq -r '.results[] | select(.name | startswith("build-")) | .name' | sort -rn -t- -k2)
 
           if [ -z "$ALL_TAGS" ]; then
-            echo "ℹ️ No build tags found for this PR"
+            echo "No build tags found for this PR"
             exit 0
           fi
 
@@ -106,32 +105,53 @@ jobs:
 
           # Keep only the latest build, delete all older ones
           if [ "$COUNT" -gt 1 ]; then
-            echo "🧹 Cleaning up old PR builds (keeping only the latest)..."
+            echo "Cleaning up old PR builds (keeping only the latest)..."
             TAGS_TO_DELETE=$(echo "$ALL_TAGS" | tail -n +2)
             
             while IFS= read -r TAG; do
               if [ -n "$TAG" ]; then
-                echo "  Deleting: $TAG"
-                STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
+                echo "  Deleting tag and image: $TAG"
+                
+                # First, get the image digest for this tag
+                DIGEST=$(curl -s -H "Authorization: JWT $TOKEN" \
+                  "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/" \
+                  2>/dev/null | jq -r '.images[0].digest // empty')
+                
+                # Delete the tag
+                TAG_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
                   -H "Authorization: JWT $TOKEN" \
                   "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/")
                 
-                if [ "$STATUS" = "204" ] || [ "$STATUS" = "200" ]; then
-                  echo "  ✅ Deleted: $TAG"
+                if [ "$TAG_STATUS" = "204" ] || [ "$TAG_STATUS" = "200" ]; then
+                  echo "  Deleted tag: $TAG"
+                  
+                  # If we got the digest and tag deletion succeeded, try to delete the image
+                  if [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ]; then
+                    sleep 1  # Small delay before deleting image
+                    IMAGE_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
+                      -H "Authorization: JWT $TOKEN" \
+                      "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/images/$DIGEST/")
+                    
+                    if [ "$IMAGE_STATUS" = "204" ] || [ "$IMAGE_STATUS" = "200" ]; then
+                      echo "  Deleted image digest: ${DIGEST:0:12}..."
+                    else
+                      echo "  Image digest still in use or deletion pending: ${DIGEST:0:12}..."
+                    fi
+                  fi
                 else
-                  echo "  ⚠️ Failed to delete $TAG (HTTP $STATUS)"
+                  echo "  Failed to delete tag $TAG (HTTP $TAG_STATUS)"
                 fi
               fi
             done
           else
-            echo "✅ No cleanup needed for PR builds (only $COUNT build)"
+            echo "No cleanup needed for PR builds (only $COUNT build)"
           fi
 
       # Cleanup old images - Main branch (keep 2 build tags + latest tag)
       - name: Cleanup Main Branch Images
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          echo "🧹 Starting main branch build image cleanup..."
+          echo "Starting main branch build image cleanup..."
 
           # Get Docker Hub API token
           TOKEN=$(curl -s -X POST \
@@ -140,11 +160,11 @@ jobs:
             https://hub.docker.com/v2/users/login/ | jq -r '.token // empty')
 
           if [ -z "$TOKEN" ]; then
-            echo "❌ Failed to authenticate with Docker Hub"
+            echo "Failed to authenticate with Docker Hub"
             exit 1
           fi
 
-          echo "✅ Authenticated with Docker Hub"
+          echo "Authenticated with Docker Hub"
 
           # List all build tags (build-* pattern) sorted by number (newest first)
           ALL_TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
@@ -152,7 +172,7 @@ jobs:
             2>/dev/null | jq -r '.results[] | select(.name | startswith("build-")) | .name' | sort -rn -t- -k2)
 
           if [ -z "$ALL_TAGS" ]; then
-            echo "ℹ️ No build tags found"
+            echo "No build tags found"
             exit 0
           fi
 
@@ -161,25 +181,46 @@ jobs:
 
           # Keep only latest 2 build tags for main branch, delete others
           if [ "$COUNT" -gt 2 ]; then
-            echo "🧹 Cleaning up old main branch images (keeping 2 most recent)..."
+            echo "Cleaning up old main branch images (keeping 2 most recent)..."
             TAGS_TO_DELETE=$(echo "$ALL_TAGS" | tail -n +3)
             
             while IFS= read -r TAG; do
               if [ -n "$TAG" ]; then
-                echo "  Deleting: $TAG"
-                STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
+                echo "  Deleting tag and image: $TAG"
+                
+                # First, get the image digest for this tag
+                DIGEST=$(curl -s -H "Authorization: JWT $TOKEN" \
+                  "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/" \
+                  2>/dev/null | jq -r '.images[0].digest // empty')
+                
+                # Delete the tag
+                TAG_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
                   -H "Authorization: JWT $TOKEN" \
                   "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/")
                 
-                if [ "$STATUS" = "204" ] || [ "$STATUS" = "200" ]; then
-                  echo "  ✅ Deleted: $TAG"
+                if [ "$TAG_STATUS" = "204" ] || [ "$TAG_STATUS" = "200" ]; then
+                  echo "  Deleted tag: $TAG"
+                  
+                  # If we got the digest and tag deletion succeeded, try to delete the image
+                  if [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ]; then
+                    sleep 1  # Small delay before deleting image
+                    IMAGE_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
+                      -H "Authorization: JWT $TOKEN" \
+                      "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/images/$DIGEST/")
+                    
+                    if [ "$IMAGE_STATUS" = "204" ] || [ "$IMAGE_STATUS" = "200" ]; then
+                      echo "  Deleted image digest: ${DIGEST:0:12}..."
+                    else
+                      echo "  Image digest still in use or deletion pending: ${DIGEST:0:12}..."
+                    fi
+                  fi
                 else
-                  echo "  ⚠️ Failed to delete $TAG (HTTP $STATUS)"
+                  echo "  Failed to delete tag $TAG (HTTP $TAG_STATUS)"
                 fi
               fi
             done
           else
-            echo "✅ No cleanup needed for main branch (only $COUNT builds, keeping 2 + latest)"
+            echo "No cleanup needed for main branch (only $COUNT builds, keeping 2 + latest)"
           fi
 
       - name: Trigger Render Deploy (main only)
