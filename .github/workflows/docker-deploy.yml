@@ -1,24 +1,46 @@
-name: build
+name: Docker CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [main]         # Production deploy only
+  pull_request:              # PR builds
+    branches: ["**"]
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set Build Number Tag
+        run: echo "BUILD_TAG=build-${{ github.run_number }}" >> $GITHUB_ENV
 
       - name: Login to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-      - name: Build Image
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:latest .
+      # 🏗 Build image with build number
+      - name: Build Docker Image
+        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:${{ env.BUILD_TAG }} .
 
-      - name: Push Image
+      - name: Push Build Image
+        run: docker push ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:${{ env.BUILD_TAG }}
+
+      # 🚀 Only MAIN branch → production deploy
+      - name: Tag as Latest (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker tag ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:${{ env.BUILD_TAG }} \
+                     ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:latest
+
+      - name: Push Latest (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: docker push ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:latest
 
-      - name: Trigger Render Deploy
+      - name: Trigger Render Deploy (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK }}
