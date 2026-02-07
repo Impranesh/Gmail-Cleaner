@@ -1,3 +1,64 @@
+# from fastapi import FastAPI, Form, Request
+# from fastapi.responses import RedirectResponse, HTMLResponse
+# from google_auth_oauthlib.flow import Flow
+# import os, json, secrets
+
+# from routes import preview
+
+# app = FastAPI()
+# app.include_router(preview.router)
+
+# SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
+# client_config = json.loads(os.environ["GOOGLE_CLIENT_CONFIG_JSON"])
+# REDIRECT_URI = os.environ["REDIRECT_URI"]
+
+# app.state.SESSIONS = {}
+
+# # ---------- HOME ----------
+# @app.get("/", response_class=HTMLResponse)
+# def home():
+#     return open("templates/home.html").read()
+
+# # ---------- START OAUTH ----------
+# @app.post("/start")
+# def start(unread: str = Form(None), promotions: str = Form(None),
+#           social: str = Form(None), updates: str = Form(None),
+#           age: str = Form("")):
+
+#     queries = []
+#     if unread: queries.append("is:unread")
+#     if promotions: queries.append("category:promotions")
+#     if social: queries.append("category:social")
+#     if updates: queries.append("category:updates")
+
+#     if age:
+#         queries = [q + f" older_than:{age}" for q in queries]
+
+#     session_id = secrets.token_hex(16)
+#     app.state.SESSIONS[session_id] = {"queries": queries}
+
+#     flow = Flow.from_client_config(client_config, SCOPES, redirect_uri=REDIRECT_URI)
+#     auth_url, state = flow.authorization_url(prompt='consent')
+#     app.state.SESSIONS[session_id]["state"] = state
+
+#     response = RedirectResponse(auth_url)
+#     response.set_cookie("session_id", session_id, httponly=True)
+#     return response
+
+# # ---------- CALLBACK ----------
+# @app.get("/auth/callback")
+# def callback(request: Request):
+#     session_id = request.cookies.get("session_id")
+#     session = app.state.SESSIONS.get(session_id)
+
+#     flow = Flow.from_client_config(client_config, SCOPES,
+#                                    state=session["state"], redirect_uri=REDIRECT_URI)
+#     flow.fetch_token(authorization_response=str(request.url))
+
+#     session["creds"] = flow.credentials.to_json()
+#     return RedirectResponse(f"/preview?query={session['queries'][0]}")
+
+
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
 from google_auth_oauthlib.flow import Flow
@@ -13,10 +74,10 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 client_config = json.loads(os.environ["GOOGLE_CLIENT_CONFIG_JSON"])
 REDIRECT_URI = os.environ["REDIRECT_URI"]
 
-# in-memory session store
+# In-memory user session store
 SESSIONS = {}
 
-# ---------------- HOME PAGE ----------------
+# ================= HOME PAGE =================
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
@@ -55,7 +116,7 @@ def home():
     </html>
     """
 
-# ---------------- START OAUTH ----------------
+# ================= START OAUTH =================
 @app.post("/start")
 def start(unread: str = Form(None), promotions: str = Form(None),
           social: str = Form(None), updates: str = Form(None),
@@ -81,7 +142,7 @@ def start(unread: str = Form(None), promotions: str = Form(None),
     response.set_cookie("session_id", session_id, httponly=True)
     return response
 
-# ---------------- CALLBACK ----------------
+# ================= CALLBACK =================
 @app.get("/auth/callback")
 def callback(request: Request):
     session_id = request.cookies.get("session_id")
@@ -93,7 +154,7 @@ def callback(request: Request):
     session["creds"] = flow.credentials.to_json()
     return RedirectResponse("/progress_page")
 
-# ---------------- PROGRESS PAGE ----------------
+# ================= PROGRESS PAGE =================
 @app.get("/progress_page", response_class=HTMLResponse)
 def progress_page():
     return """
@@ -135,7 +196,43 @@ def progress_page():
     </html>
     """
 
-# ---------------- CLEANING STREAM ----------------
+# ================= RESTORE READ EMAILS =================
+def restore_read_from_trash(service):
+    next_page_token = None
+    restored = 0
+
+    while True:
+        results = service.users().messages().list(
+            userId='me',
+            q="in:trash -is:unread",
+            maxResults=500,
+            pageToken=next_page_token
+        ).execute()
+
+        messages = results.get('messages', [])
+        if not messages:
+            break
+
+        ids = [m['id'] for m in messages]
+
+        service.users().messages().batchModify(
+            userId='me',
+            body={
+                "ids": ids,
+                "removeLabelIds": ["TRASH"],
+                "addLabelIds": ["INBOX"]
+            }
+        ).execute()
+
+        restored += len(ids)
+
+        next_page_token = results.get('nextPageToken')
+        if not next_page_token:
+            break
+
+    return restored
+
+# ================= CLEANING STREAM =================
 @app.get("/progress")
 async def progress(request: Request):
 
@@ -177,9 +274,14 @@ async def progress(request: Request):
                 if not next_page_token:
                     break
 
+        # 🔁 SAFETY RESTORE
+        restored_count = restore_read_from_trash(service)
+
         if not found_any:
             yield "data: No matching emails found 🎉\n\n"
         else:
             yield f"data: DONE. Total deleted: {total_deleted}\n\n"
+
+        yield f"data: Restored {restored_count} read emails from Trash 🔁\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
