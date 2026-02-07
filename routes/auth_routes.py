@@ -41,6 +41,21 @@ def start(
     if age:
         queries = [q + f" older_than:{age}" for q in queries]
     
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_queries = []
+    for q in queries:
+        if q not in seen:
+            seen.add(q)
+            unique_queries.append(q)
+    queries = unique_queries
+    
+    # If no specific filters selected, default to unread only
+    if not queries:
+        queries = [base_filter]
+        if age:
+            queries = [f"{base_filter} older_than:{age}"]
+    
     # Create session
     session_id = create_session(queries, bool(restore))
     
