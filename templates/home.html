@@ -13,59 +13,196 @@
         background: white;
         padding: 30px;
         border-radius: 10px;
-        width: 450px;
+        width: 500px;
         margin: auto;
         box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+      .section {
+        text-align: left;
+        margin-bottom: 25px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid #eee;
+      }
+      .section:last-child {
+        border-bottom: none;
+      }
+      .section h3 {
+        margin-top: 0;
+        color: #333;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
       }
       label {
         display: block;
         text-align: left;
         margin: 10px 0;
       }
+      input[type="checkbox"] {
+        margin-right: 8px;
+      }
       select,
       button {
-        padding: 8px;
+        padding: 10px;
         margin-top: 10px;
         width: 100%;
+        border-radius: 5px;
+        border: 1px solid #ddd;
+        box-sizing: border-box;
+      }
+      select {
+        cursor: pointer;
+      }
+      .btn-group {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+      }
+      .btn-group button {
+        flex: 1;
+        width: auto;
+        margin-top: 0;
       }
       button {
         background: #4285f4;
         color: white;
         border: none;
-        border-radius: 5px;
         cursor: pointer;
+        transition: background 0.3s;
       }
       button:hover {
         background: #357ae8;
+      }
+      .secondary-btn {
+        background: #6c757d;
+      }
+      .secondary-btn:hover {
+        background: #5a6268;
+      }
+      .feature-badge {
+        display: inline-block;
+        background: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+        padding: 3px 8px;
+        border-radius: 3px;
+        font-size: 11px;
+        margin-left: 5px;
+      }
+      .info-text {
+        font-size: 12px;
+        color: #666;
+        margin-top: 5px;
       }
     </style>
   </head>
   <body>
     <div class="box">
-      <h2>🧹 Gmail Cleaner Pro</h2>
-      <form action="/start" method="post">
-        <label
-          ><input type="checkbox" name="unread" checked /> Unread Emails</label
-        >
-        <label><input type="checkbox" name="promotions" /> Promotions</label>
-        <label><input type="checkbox" name="social" /> Social</label>
-        <label><input type="checkbox" name="updates" /> Updates</label>
+      <h2>Gmail Cleaner Pro</h2>
+      <p style="color: #666; margin-top: -10px;">Smart email cleanup with AI detection</p>
 
-        <label>📅 Delete emails older than:</label>
-        <select name="age">
-          <option value="">No filter</option>
-          <option value="7d">1 Week</option>
-          <option value="1m">1 Month</option>
-          <option value="1y">1 Year</option>
-        </select>
+      <form action="/start" method="post" id="cleanForm">
+        <!-- Categories Section -->
+        <div class="section">
+          <h3>Categories to Clean</h3>
+          <label>
+            <input type="checkbox" name="unread" checked /> Unread Emails
+          </label>
+          <label>
+            <input type="checkbox" name="promotions" /> Promotions
+            <span class="feature-badge">AI Detect</span>
+          </label>
+          <label>
+            <input type="checkbox" name="social" /> Social
+            <span class="feature-badge">AI Detect</span>
+          </label>
+          <label>
+            <input type="checkbox" name="updates" /> Updates & Notifications
+          </label>
+        </div>
 
-        <label
-          ><input type="checkbox" name="restore" checked /> 🔁 Enable Safety
-          Restore (Recommended)</label
-        >
+        <!-- Age Filter Section -->
+        <div class="section">
+          <h3>Age Filter</h3>
+          <label>Delete emails older than:</label>
+          <select name="age">
+            <option value="">No filter</option>
+            <option value="7d">1 Week</option>
+            <option value="1m">1 Month (default)</option>
+            <option value="1y">1 Year</option>
+          </select>
+        </div>
 
-        <button type="submit">Login & Clean</button>
+        <!-- Advanced Options Section -->
+        <div class="section">
+          <h3>Advanced Options</h3>
+          <label>
+            <input type="checkbox" name="enable_spam_detection" /> Enable AI Spam Detection
+            <span class="feature-badge">NEW</span>
+          </label>
+          <p class="info-text">Automatically identify and flag potential spam/promotional emails</p>
+
+          <label>
+            <input type="checkbox" name="enable_preview" checked /> Show Email Preview
+            <span class="feature-badge">NEW</span>
+          </label>
+          <p class="info-text">Review emails before deletion (recommended)</p>
+
+          <label>
+            <input type="checkbox" name="restore" checked /> Enable Safety Restore
+            <span class="feature-badge">UNDO</span>
+          </label>
+          <p class="info-text">Keep deleted emails in trash for 30 days (undo capability)</p>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="btn-group">
+          <button type="submit">Start Cleaning</button>
+        </div>
       </form>
+
+      <!-- Session History / Undo -->
+      <div id="sessionInfo" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; display: none;">
+        <p style="color: #666; font-size: 13px;">Last cleanup:</p>
+        <button type="button" class="secondary-btn" onclick="undoLastSession()" style="width: 100%;">Undo Last Session</button>
+      </div>
     </div>
+
+    <script>
+      async function undoLastSession() {
+        if (!confirm('Restore emails from last cleanup session?')) return;
+        
+        try {
+          const response = await fetch('/api/undo-session', { method: 'POST' });
+          const data = await response.json();
+          
+          if (data.success) {
+            alert(`Restored ${data.emails_restored} emails from trash`);
+            // Refresh session info
+            checkSessionHistory();
+          } else {
+            alert('Error: ' + data.message);
+          }
+        } catch (error) {
+          alert('Failed to undo: ' + error);
+        }
+      }
+
+      async function checkSessionHistory() {
+        try {
+          const response = await fetch('/api/session-history');
+          const data = await response.json();
+          
+          if (data.history && data.history.length > 0) {
+            document.getElementById('sessionInfo').style.display = 'block';
+          }
+        } catch (error) {
+          console.error('Failed to check session history:', error);
+        }
+      }
+
+      // Check for session history on page load
+      document.addEventListener('DOMContentLoaded', checkSessionHistory);
+    </script>
   </body>
 </html>
