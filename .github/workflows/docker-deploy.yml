@@ -2,8 +2,8 @@ name: Docker CI/CD
 
 on:
   push:
-    branches: [main]         # Production deploy only
-  pull_request:              # PR builds
+    branches: [main] # Production deploy only
+  pull_request: # PR builds
     branches: ["**"]
 
 permissions:
@@ -23,14 +23,14 @@ jobs:
       - name: Login to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-      # 🏗 Build image with build number
+      # Build image with build number
       - name: Build Docker Image
         run: docker build -t ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:${{ env.BUILD_TAG }} .
 
       - name: Push Build Image
         run: docker push ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:${{ env.BUILD_TAG }}
 
-      # 🚀 Only MAIN branch → production deploy
+      # Only MAIN branch → production deploy
       - name: Tag as Latest (main only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
@@ -40,6 +40,52 @@ jobs:
       - name: Push Latest (main only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: docker push ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:latest
+
+      # Cleanup old images - PR builds (keep only current)
+      - name: Cleanup PR Build Images
+        if: github.event_name == 'pull_request'
+        run: |
+          # Get all tags with pr- prefix
+          TAGS=$(docker image ls | grep "pr-" | awk '{print $2}' | sort -V)
+          COUNT=$(echo "$TAGS" | wc -l)
+
+          # Keep only current PR build, delete old ones
+          if [ $COUNT -gt 1 ]; then
+            echo "Cleaning up old PR builds (keeping only current)..."
+            echo "$TAGS" | head -n -1 | while read TAG; do
+              docker rmi -f "${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:$TAG" 2>/dev/null || true
+              echo "Deleted: $TAG"
+            done
+          fi
+
+      # Cleanup old images - Main branch (keep 2 versions: current + previous)
+      - name: Cleanup Main Branch Images
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          # Authenticate with Docker Hub API
+          TOKEN=$(curl -s -H "Content-Type: application/json" \
+            -X POST \
+            -d '{"username":"${{ secrets.DOCKER_USERNAME }}","password":"${{ secrets.DOCKER_PASSWORD }}"}' \
+            https://hub.docker.com/v2/users/login/ | jq -r '.token')
+
+          # List all tags sorted by date (newest first)
+          TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
+            "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/?page_size=100" \
+            | jq -r '.results[] | select(.name | startswith("build-")) | .name' | sort -rV)
+
+          # Count tags
+          COUNT=$(echo "$TAGS" | wc -l)
+
+          # Keep only latest 2 build tags for main branch
+          if [ $COUNT -gt 2 ]; then
+            echo "Cleaning up old main branch images (keeping 2 most recent)..."
+            echo "$TAGS" | tail -n +3 | while read TAG; do
+              echo "Deleting tag: $TAG"
+              curl -s -X DELETE \
+                -H "Authorization: JWT $TOKEN" \
+                "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/" || true
+            done
+          fi
 
       - name: Trigger Render Deploy (main only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

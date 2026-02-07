@@ -33,45 +33,67 @@ async def progress(request: Request):
             return
         
         # Build Gmail service from credentials
-        service = build_service(session["creds"])
+        try:
+            service = build_service(session["creds"])
+        except Exception as e:
+            yield f"data: Error building service: {str(e)}\n\n"
+            return
         
         total_deleted = 0
         found_any = False
         
         yield "data: Starting cleanup...\n\n"
         
-        # Process each query
-        for query in session["queries"]:
+        # Get unique queries to avoid duplicates
+        queries = list(set(session.get("queries", [])))
+        
+        if not queries:
+            yield "data: No filters selected\n\n"
+            return
+        
+        # Process each query only once
+        for query in queries:
             yield f"data: Processing {query}...\n\n"
             next_page_token = None
+            query_deleted = 0
             
-            while True:
-                messages, next_page_token = list_messages(service, query, page_token=next_page_token)
-                
-                if not messages:
-                    break
-                
-                found_any = True
-                ids = [m['id'] for m in messages]
-                move_to_trash(service, ids)
-                
-                total_deleted += len(ids)
-                yield f"data: Deleted {total_deleted} emails...\n\n"
-                
-                await asyncio.sleep(0.2)
-                
-                if not next_page_token:
-                    break
+            try:
+                while True:
+                    messages, next_page_token = list_messages(service, query, page_token=next_page_token)
+                    
+                    if not messages:
+                        if query_deleted > 0:
+                            yield f"data: Completed '{query}': {query_deleted} deleted\n\n"
+                        break
+                    
+                    found_any = True
+                    ids = [m['id'] for m in messages]
+                    move_to_trash(service, ids)
+                    
+                    query_deleted += len(ids)
+                    total_deleted += len(ids)
+                    yield f"data: Deleted {total_deleted} emails total...\n\n"
+                    
+                    await asyncio.sleep(0.2)
+                    
+                    if not next_page_token:
+                        break
+            except Exception as e:
+                yield f"data: Error processing {query}: {str(e)}\n\n"
+                continue
         
         # Safety restore: restore read emails from trash
         if session.get("restore_enabled"):
-            restored_count = restore_read_from_trash(service)
-            yield f"data: Restored {restored_count} read emails from Trash 🔁\n\n"
+            try:
+                restored_count = restore_read_from_trash(service)
+                yield f"data: Restored {restored_count} read emails from Trash 🔁\n\n"
+            except Exception as e:
+                yield f"data: Warning during restore: {str(e)}\n\n"
         
         # Final message
         if not found_any:
             yield "data: No matching emails found 🎉\n\n"
         else:
-            yield f"data: DONE. Total deleted: {total_deleted}\n\n"
+            yield f"data: ✅ DONE. Total deleted: {total_deleted}\n\n"
     
     return StreamingResponse(event_stream(), media_type="text/event-stream")
