@@ -99,7 +99,9 @@
   <body>
     <div class="box">
       <h2>Gmail Cleaner Pro</h2>
-      <p style="color: #666; margin-top: -10px;">Smart email cleanup with AI detection</p>
+      <p style="color: #666; margin-top: -10px">
+        Smart email cleanup with AI detection
+      </p>
 
       <form action="/start" method="post" id="cleanForm">
         <!-- Categories Section -->
@@ -137,22 +139,29 @@
         <div class="section">
           <h3>Advanced Options</h3>
           <label>
-            <input type="checkbox" name="enable_spam_detection" /> Enable AI Spam Detection
+            <input type="checkbox" name="enable_spam_detection" /> Enable AI
+            Spam Detection
             <span class="feature-badge">NEW</span>
           </label>
-          <p class="info-text">Automatically identify and flag potential spam/promotional emails</p>
+          <p class="info-text">
+            Automatically identify and flag potential spam/promotional emails
+          </p>
 
           <label>
-            <input type="checkbox" name="enable_preview" checked /> Show Email Preview
+            <input type="checkbox" name="enable_preview" checked /> Show Email
+            Preview
             <span class="feature-badge">NEW</span>
           </label>
           <p class="info-text">Review emails before deletion (recommended)</p>
 
           <label>
-            <input type="checkbox" name="restore" checked /> Enable Safety Restore
+            <input type="checkbox" name="restore" checked /> Enable Safety
+            Restore
             <span class="feature-badge">UNDO</span>
           </label>
-          <p class="info-text">Keep deleted emails in trash for 30 days (undo capability)</p>
+          <p class="info-text">
+            Keep deleted emails in trash for 30 days (undo capability)
+          </p>
         </div>
 
         <!-- Action Buttons -->
@@ -162,47 +171,63 @@
       </form>
 
       <!-- Session History / Undo -->
-      <div id="sessionInfo" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; display: none;">
-        <p style="color: #666; font-size: 13px;">Last cleanup:</p>
-        <button type="button" class="secondary-btn" onclick="undoLastSession()" style="width: 100%;">Undo Last Session</button>
+      <div
+        id="sessionInfo"
+        style="
+          margin-top: 20px;
+          padding-top: 20px;
+          border-top: 1px solid #eee;
+          text-align: center;
+          display: none;
+        "
+      >
+        <p style="color: #666; font-size: 13px">Last cleanup:</p>
+        <button
+          type="button"
+          class="secondary-btn"
+          onclick="undoLastSession()"
+          style="width: 100%"
+        >
+          Undo Last Session
+        </button>
       </div>
     </div>
 
     <script>
       async function undoLastSession() {
-        if (!confirm('Restore emails from last cleanup session?')) return;
-        
+        if (!confirm("Restore emails from last cleanup session?")) return;
+
         try {
-          const response = await fetch('/api/undo-session', { method: 'POST' });
+          const response = await fetch("/api/undo-session", { method: "POST" });
           const data = await response.json();
-          
+
           if (data.success) {
             alert(`Restored ${data.emails_restored} emails from trash`);
             // Refresh session info
             checkSessionHistory();
           } else {
-            alert('Error: ' + data.message);
+            alert("Error: " + data.message);
           }
         } catch (error) {
-          alert('Failed to undo: ' + error);
+          alert("Failed to undo: " + error);
         }
       }
 
       async function checkSessionHistory() {
         try {
-          const response = await fetch('/api/session-history');
+          const response = await fetch("/api/session-history");
           const data = await response.json();
-          
+
           if (data.history && data.history.length > 0) {
-            document.getElementById('sessionInfo').style.display = 'block';
+            document.getElementById("sessionInfo").style.display = "block";
           }
         } catch (error) {
-          console.error('Failed to check session history:', error);
+          console.error("Failed to check session history:", error);
         }
       }
 
       // Check for session history on page load
-      document.addEventListener('DOMContentLoaded', checkSessionHistory);
+      document.addEventListener("DOMContentLoaded", checkSessionHistory);
     </script>
   </body>
 </html>

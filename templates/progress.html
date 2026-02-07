@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
   <head>
-    <title>Cleaning...</title>
+    <title>Cleaning Your Inbox...</title>
     <style>
       body {
         font-family: Arial;
@@ -13,52 +13,257 @@
         background: white;
         padding: 30px;
         border-radius: 10px;
-        width: 500px;
+        width: 600px;
         margin: auto;
         box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
       }
+      .progress-section {
+        margin-bottom: 30px;
+      }
+      .progress-title {
+        font-size: 18px;
+        font-weight: bold;
+        color: #333;
+        margin-bottom: 15px;
+      }
       #barWrap {
-        background: #ddd;
-        height: 20px;
-        border-radius: 10px;
-        margin-top: 20px;
+        background: #e0e0e0;
+        height: 30px;
+        border-radius: 15px;
+        margin-bottom: 10px;
+        overflow: hidden;
       }
       #bar {
-        height: 20px;
+        height: 30px;
         width: 0%;
-        background: #4285f4;
-        border-radius: 10px;
+        background: linear-gradient(90deg, #4285f4, #357ae8);
+        border-radius: 15px;
+        transition: width 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 12px;
+        font-weight: bold;
       }
-      ul {
+      .stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        margin-bottom: 20px;
+      }
+      .stat-box {
+        background: #f9f9f9;
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 4px solid #4285f4;
+      }
+      .stat-label {
+        font-size: 12px;
+        color: #666;
+        text-transform: uppercase;
+        margin-bottom: 5px;
+      }
+      .stat-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #4285f4;
+      }
+      #log {
         text-align: left;
-        max-height: 200px;
-        overflow: auto;
+        max-height: 250px;
+        overflow-y: auto;
+        background: #f5f5f5;
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid #e0e0e0;
+        margin-top: 15px;
+      }
+      #log li {
+        list-style: none;
+        padding: 8px 0;
+        border-bottom: 1px solid #e0e0e0;
+        font-size: 13px;
+        color: #555;
+      }
+      #log li:last-child {
+        border-bottom: none;
+      }
+      #log li.success {
+        color: #28a745;
+      }
+      #log li.info {
+        color: #4285f4;
+      }
+      #log li.warning {
+        color: #ff9800;
+      }
+      #log li.error {
+        color: #d32f2f;
+      }
+      .status-text {
+        font-size: 16px;
+        color: #333;
+        margin-bottom: 10px;
+        height: 20px;
+      }
+      .completion-message {
+        display: none;
+        padding: 20px;
+        background: #d4edda;
+        border: 1px solid #c3e6cb;
+        border-radius: 8px;
+        color: #155724;
+        margin-top: 20px;
+        text-align: center;
+      }
+      .completion-message.show {
+        display: block;
+      }
+      .action-buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+        justify-content: center;
+        display: none;
+      }
+      .action-buttons.show {
+        display: flex;
+      }
+      .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background 0.3s;
+      }
+      .btn-primary {
+        background: #4285f4;
+        color: white;
+      }
+      .btn-primary:hover {
+        background: #357ae8;
+      }
+      .btn-secondary {
+        background: #6c757d;
+        color: white;
+      }
+      .btn-secondary:hover {
+        background: #5a6268;
       }
     </style>
   </head>
   <body>
     <div class="box">
-      <h2>🧹 Cleaning Your Inbox...</h2>
-      <div id="barWrap"><div id="bar"></div></div>
-      <p id="status">Starting...</p>
-      <ul id="log"></ul>
+      <h2>Gmail Cleaner Pro - In Progress</h2>
+
+      <div class="progress-section">
+        <div class="progress-title">Cleanup Progress</div>
+        <div id="barWrap"><div id="bar">0%</div></div>
+        <p id="status" class="status-text">Starting cleanup...</p>
+      </div>
+
+      <div class="stats">
+        <div class="stat-box">
+          <div class="stat-label">Emails Deleted</div>
+          <div class="stat-value" id="deleted-count">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Storage Freed</div>
+          <div class="stat-value" id="storage-freed">0 MB</div>
+        </div>
+      </div>
+
+      <div class="progress-section">
+        <div class="progress-title">Cleanup Log</div>
+        <ul id="log"></ul>
+      </div>
+
+      <div class="completion-message" id="completion">
+        <h3>Cleanup Complete!</h3>
+        <p id="completion-text"></p>
+      </div>
+
+      <div class="action-buttons" id="actions">
+        <button class="btn btn-primary" onclick="goHome()">Back to Home</button>
+        <button class="btn btn-secondary" onclick="location.reload()">
+          Start Another Cleanup
+        </button>
+      </div>
     </div>
 
     <script>
       var source = new EventSource("/progress");
+      let totalDeleted = 0;
       let percent = 0;
+
       source.onmessage = function (event) {
         let msg = event.data;
+
+        // Update status
         document.getElementById("status").innerText = msg;
-        document.getElementById("log").innerHTML += "<li>" + msg + "</li>";
-        percent += 5;
-        document.getElementById("bar").style.width =
-          Math.min(percent, 100) + "%";
+
+        // Add to log with color coding
+        let logItem = document.createElement("li");
+        logItem.textContent = msg;
+
+        if (msg.includes("DONE") || msg.includes("Complete")) {
+          logItem.className = "success";
+        } else if (msg.includes("Error")) {
+          logItem.className = "error";
+        } else if (msg.includes("Restored")) {
+          logItem.className = "warning";
+        } else {
+          logItem.className = "info";
+        }
+
+        document.getElementById("log").appendChild(logItem);
+        document.getElementById("log").scrollTop =
+          document.getElementById("log").scrollHeight;
+
+        // Extract deleted count from message
+        let match = msg.match(/(\d+)\s+emails?\s+total|deleted:\s+(\d+)/i);
+        if (match) {
+          totalDeleted = parseInt(match[1] || match[2]);
+          document.getElementById("deleted-count").textContent =
+            totalDeleted.toLocaleString();
+          document.getElementById("storage-freed").textContent =
+            (totalDeleted * 0.05).toFixed(2) + " MB";
+        }
+
+        // Update progress bar
+        percent += 3;
+        percent = Math.min(percent, 95);
+        document.getElementById("bar").style.width = percent + "%";
+        document.getElementById("bar").textContent = percent + "%";
+
+        // Check for completion
         if (msg.includes("DONE") || msg.includes("No matching emails")) {
           source.close();
           document.getElementById("bar").style.width = "100%";
+          document.getElementById("bar").textContent = "100%";
+
+          // Show completion message
+          setTimeout(() => {
+            document.getElementById("completion").classList.add("show");
+            document.getElementById("completion-text").textContent =
+              `Successfully deleted ${totalDeleted.toLocaleString()} emails and freed approximately ${(totalDeleted * 0.05).toFixed(2)} MB of storage!`;
+            document.getElementById("actions").classList.add("show");
+          }, 500);
         }
       };
+
+      source.onerror = function () {
+        document.getElementById("status").innerText =
+          "Connection lost or cleanup completed";
+        document.getElementById("actions").classList.add("show");
+        source.close();
+      };
+
+      function goHome() {
+        window.location.href = "/";
+      }
     </script>
   </body>
 </html>
