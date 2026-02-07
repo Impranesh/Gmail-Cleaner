@@ -108,7 +108,7 @@ jobs:
             echo "Cleaning up old PR builds (keeping only the latest)..."
             TAGS_TO_DELETE=$(echo "$ALL_TAGS" | tail -n +2)
             
-            while IFS= read -r TAG; do
+            echo "$TAGS_TO_DELETE" | while IFS= read -r TAG; do
               if [ -n "$TAG" ]; then
                 echo "  Deleting tag: $TAG"
                 
@@ -174,7 +174,7 @@ jobs:
             echo "Cleaning up old main branch images (keeping 2 most recent)..."
             TAGS_TO_DELETE=$(echo "$ALL_TAGS" | tail -n +3)
             
-            while IFS= read -r TAG; do
+            echo "$TAGS_TO_DELETE" | while IFS= read -r TAG; do
               if [ -n "$TAG" ]; then
                 echo "  Deleting tag: $TAG"
                 
