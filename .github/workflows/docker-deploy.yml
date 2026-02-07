@@ -90,46 +90,59 @@ jobs:
 
           echo "Authenticated with Docker Hub"
 
-          # For PR builds: List all build-* tags
-          ALL_TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
-            "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/?page_size=100" \
-            2>/dev/null | jq -r '.results[] | select(.name | startswith("build-")) | .name' | sort -rn -t- -k2)
+          # Get registry token for direct manifest deletion
+          REGISTRY_TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:*" | jq -r '.token')
 
-          if [ -z "$ALL_TAGS" ]; then
+          # For PR builds: List all build-* tags with their digests
+          TAGS_WITH_DIGESTS=$(curl -s -H "Authorization: JWT $TOKEN" \
+            "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/?page_size=100" \
+            2>/dev/null | jq -r '.results[] | select(.name | startswith("build-")) | "\(.name):\(.images[0].digest)"' | sort -rn -t- -k1.7)
+
+          if [ -z "$TAGS_WITH_DIGESTS" ]; then
             echo "No build tags found for this PR"
             exit 0
           fi
 
-          COUNT=$(echo "$ALL_TAGS" | wc -l)
+          COUNT=$(echo "$TAGS_WITH_DIGESTS" | wc -l)
           echo "Found $COUNT build tag(s) from this PR"
 
           # Keep only the latest build, delete all older ones
           if [ "$COUNT" -gt 1 ]; then
             echo "Cleaning up old PR builds (keeping only the latest)..."
-            TAGS_TO_DELETE=$(echo "$ALL_TAGS" | tail -n +2)
             
-            echo "$TAGS_TO_DELETE" | while IFS= read -r TAG; do
+            # Get the latest tag and its digest
+            LATEST_TAG=$(echo "$TAGS_WITH_DIGESTS" | head -n 1 | cut -d: -f1)
+            LATEST_DIGEST=$(echo "$TAGS_WITH_DIGESTS" | head -n 1 | cut -d: -f2)
+            echo "Keeping: $LATEST_TAG (digest: ${LATEST_DIGEST:0:12}...)"
+            
+            # Delete all other tags and their manifests
+            echo "$TAGS_WITH_DIGESTS" | tail -n +2 | cut -d: -f1 | while IFS= read -r TAG; do
               if [ -n "$TAG" ]; then
-                echo "  Deleting tag: $TAG"
+                TAG_DIGEST=$(echo "$TAGS_WITH_DIGESTS" | grep "^$TAG:" | cut -d: -f2)
+                echo "  Deleting tag: $TAG (digest: ${TAG_DIGEST:0:12}...)"
                 
-                # Get the digest for tracking
-                DIGEST=$(curl -s -H "Authorization: JWT $TOKEN" \
-                  "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/" \
-                  2>/dev/null | jq -r '.images[0].digest // empty')
-                
-                # Delete the tag (this triggers garbage collection)
+                # Step 1: Delete the tag from Docker Hub
                 TAG_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
                   -H "Authorization: JWT $TOKEN" \
                   "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/")
                 
                 if [ "$TAG_STATUS" = "204" ] || [ "$TAG_STATUS" = "200" ]; then
-                  if [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ]; then
-                    echo "  Deleted tag: $TAG (digest: ${DIGEST:0:12}...)"
-                  else
-                    echo "  Deleted tag: $TAG"
+                  echo "  Tag deleted successfully"
+                  
+                  # Step 2: Delete the manifest directly from registry (immediate effect)
+                  if [ -n "$TAG_DIGEST" ] && [ "$TAG_DIGEST" != "null" ]; then
+                    MANIFEST_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
+                      -H "Authorization: Bearer $REGISTRY_TOKEN" \
+                      "https://registry-1.docker.io/v2/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/manifests/$TAG_DIGEST")
+                    
+                    if [ "$MANIFEST_STATUS" = "202" ]; then
+                      echo "  Manifest deleted from registry (immediate effect)"
+                    else
+                      echo "  Manifest deletion returned HTTP $MANIFEST_STATUS (may still queue)"
+                    fi
                   fi
                 else
-                  echo "  Failed to delete tag $TAG (HTTP $TAG_STATUS)"
+                  echo "  Failed to delete tag (HTTP $TAG_STATUS)"
                 fi
               fi
             done
@@ -156,52 +169,69 @@ jobs:
 
           echo "Authenticated with Docker Hub"
 
-          # List all build tags (build-* pattern) sorted by number (newest first)
-          ALL_TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
-            "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/?page_size=100" \
-            2>/dev/null | jq -r '.results[] | select(.name | startswith("build-")) | .name' | sort -rn -t- -k2)
+          # Get registry token for direct manifest deletion
+          REGISTRY_TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:*" | jq -r '.token')
 
-          if [ -z "$ALL_TAGS" ]; then
+          # List all build tags with their digests (sorted by number, newest first)
+          TAGS_WITH_DIGESTS=$(curl -s -H "Authorization: JWT $TOKEN" \
+            "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/?page_size=100" \
+            2>/dev/null | jq -r '.results[] | select(.name | startswith("build-")) | "\(.name):\(.images[0].digest)"' | sort -rn -t- -k1.7)
+
+          if [ -z "$TAGS_WITH_DIGESTS" ]; then
             echo "No build tags found"
             exit 0
           fi
 
-          COUNT=$(echo "$ALL_TAGS" | wc -l)
-          echo "Found $COUNT build tags"
+          COUNT=$(echo "$TAGS_WITH_DIGESTS" | wc -l)
+          echo "Found $COUNT build tag(s) on main"
 
           # Keep only latest 2 build tags for main branch, delete others
           if [ "$COUNT" -gt 2 ]; then
             echo "Cleaning up old main branch images (keeping 2 most recent)..."
-            TAGS_TO_DELETE=$(echo "$ALL_TAGS" | tail -n +3)
             
-            echo "$TAGS_TO_DELETE" | while IFS= read -r TAG; do
+            # Show which tags we're keeping
+            echo "$TAGS_WITH_DIGESTS" | head -n 2 | while IFS= read -r LINE; do
+              TAG=$(echo "$LINE" | cut -d: -f1)
+              DIGEST=$(echo "$LINE" | cut -d: -f2)
+              echo "Keeping: $TAG (digest: ${DIGEST:0:12}...)"
+            done
+            
+            # Delete older tags and their manifests
+            echo "$TAGS_WITH_DIGESTS" | tail -n +3 | cut -d: -f1 | while IFS= read -r TAG; do
               if [ -n "$TAG" ]; then
-                echo "  Deleting tag: $TAG"
+                TAG_DIGEST=$(echo "$TAGS_WITH_DIGESTS" | grep "^$TAG:" | cut -d: -f2)
+                echo "  Deleting tag: $TAG (digest: ${TAG_DIGEST:0:12}...)"
                 
-                # Get the digest for tracking
-                DIGEST=$(curl -s -H "Authorization: JWT $TOKEN" \
-                  "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/" \
-                  2>/dev/null | jq -r '.images[0].digest // empty')
-                
-                # Delete the tag (this triggers garbage collection)
+                # Step 1: Delete the tag from Docker Hub
                 TAG_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
                   -H "Authorization: JWT $TOKEN" \
                   "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/")
                 
                 if [ "$TAG_STATUS" = "204" ] || [ "$TAG_STATUS" = "200" ]; then
-                  if [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ]; then
-                    echo "  Deleted tag: $TAG (digest: ${DIGEST:0:12}...)"
-                  else
-                    echo "  Deleted tag: $TAG"
+                  echo "  Tag deleted successfully"
+                  
+                  # Step 2: Delete the manifest directly from registry (immediate effect)
+                  if [ -n "$TAG_DIGEST" ] && [ "$TAG_DIGEST" != "null" ]; then
+                    MANIFEST_STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
+                      -H "Authorization: Bearer $REGISTRY_TOKEN" \
+                      "https://registry-1.docker.io/v2/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/manifests/$TAG_DIGEST")
+                    
+                    if [ "$MANIFEST_STATUS" = "202" ]; then
+                      echo "  Manifest deleted from registry (immediate effect)"
+                    else
+                      echo "  Manifest deletion returned HTTP $MANIFEST_STATUS (may still queue)"
+                    fi
                   fi
                 else
-                  echo "  Failed to delete tag $TAG (HTTP $TAG_STATUS)"
+                  echo "  Failed to delete tag (HTTP $TAG_STATUS)"
                 fi
               fi
             done
           else
             echo "No cleanup needed for main branch (only $COUNT builds, keeping 2 + latest)"
           fi
+
+          echo "Note: Space may be freed immediately via registry API or within 24-48 hours via Docker Hub GC"
 
       - name: Trigger Render Deploy (main only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
