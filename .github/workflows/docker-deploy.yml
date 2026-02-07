@@ -8,13 +8,13 @@ on:
   workflow_dispatch: # Manual trigger
     inputs:
       branch:
-        description: 'Branch to build (leave empty for current branch)'
+        description: "Branch to build (leave empty for current branch)"
         required: false
-        default: ''
+        default: ""
       tag_prefix:
-        description: 'Tag prefix (e.g., manual, test, staging)'
+        description: "Tag prefix (e.g., manual, test, staging)"
         required: false
-        default: 'manual'
+        default: "manual"
 
 permissions:
   contents: read
@@ -41,8 +41,14 @@ jobs:
             BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's|/|-|g')
             echo "BUILD_TAG=${TAG_PREFIX}-${BRANCH_NAME}-${{ github.run_number }}" >> $GITHUB_ENV
             echo "IS_MANUAL=true" >> $GITHUB_ENV
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            # PR builds get pr- prefix
+            echo "BUILD_TAG=pr-${{ github.run_number }}" >> $GITHUB_ENV
+            echo "IS_MANUAL=false" >> $GITHUB_ENV
           else
+            # Main branch builds get build- prefix
             echo "BUILD_TAG=build-${{ github.run_number }}" >> $GITHUB_ENV
+
             echo "IS_MANUAL=false" >> $GITHUB_ENV
           fi
 
@@ -101,48 +107,55 @@ jobs:
       - name: Cleanup PR Build Images
         if: github.event_name == 'pull_request'
         run: |
-          echo "Starting PR build image cleanup..."
-          
+          echo "🧹 Starting PR build image cleanup..."
+
           # Get Docker Hub API token
           TOKEN=$(curl -s -X POST \
             -H "Content-Type: application/json" \
             -d "{\"username\":\"${{ secrets.DOCKER_USERNAME }}\",\"password\":\"${{ secrets.DOCKER_PASSWORD }}\"}" \
             https://hub.docker.com/v2/users/login/ | jq -r '.token // empty')
-          
+
           if [ -z "$TOKEN" ]; then
             echo "❌ Failed to authenticate with Docker Hub"
             exit 1
           fi
-          
+
           echo "✅ Authenticated with Docker Hub"
-          
-          # List all PR tags (pr-* pattern)
+
+          # List all PR tags (pr-* pattern) sorted by build number (newest first)
           TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
             "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/?page_size=100" \
-            2>/dev/null | jq -r '.results[] | select(.name | startswith("pr-")) | .name' | sort -V)
-          
-          COUNT=$(echo "$TAGS" | grep -c . || echo 0)
-          echo "Found $COUNT PR build tags"
-          
+            2>/dev/null | jq -r '.results[] | select(.name | startswith("pr-")) | .name' | sort -rn -t- -k2)
+
+          if [ -z "$TAGS" ]; then
+            echo "ℹ️ No PR build tags found"
+            exit 0
+          fi
+
+          COUNT=$(echo "$TAGS" | wc -l)
+          echo "Found $COUNT PR build tag(s)"
+
           # Keep only the latest PR build, delete older ones
-          if [ $COUNT -gt 1 ]; then
-            echo "Cleaning up old PR builds (keeping only the latest)..."
-            TAGS_TO_DELETE=$(echo "$TAGS" | head -n -1)
+          if [ "$COUNT" -gt 1 ]; then
+            echo "🧹 Cleaning up old PR builds (keeping only the latest)..."
+            TAGS_TO_DELETE=$(echo "$TAGS" | tail -n +2)
             
-            echo "$TAGS_TO_DELETE" | while read TAG; do
-              echo "  Deleting: $TAG"
-              STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
-                -H "Authorization: JWT $TOKEN" \
-                "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/")
-              
-              if [ "$STATUS" = "204" ] || [ "$STATUS" = "200" ]; then
-                echo " Deleted: $TAG"
-              else
-                echo " Failed to delete $TAG (HTTP $STATUS)"
+            while IFS= read -r TAG; do
+              if [ -n "$TAG" ]; then
+                echo "  Deleting: $TAG"
+                STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
+                  -H "Authorization: JWT $TOKEN" \
+                  "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/")
+                
+                if [ "$STATUS" = "204" ] || [ "$STATUS" = "200" ]; then
+                  echo "  ✅ Deleted: $TAG"
+                else
+                  echo "  ⚠️ Failed to delete $TAG (HTTP $STATUS)"
+                fi
               fi
             done
           else
-            echo "No cleanup needed for PR builds"
+            echo "✅ No cleanup needed for PR builds (only $COUNT build)"
           fi
 
       # Cleanup old images - Main branch (keep 2 versions: current + previous)
@@ -150,28 +163,28 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           echo "Starting main branch build image cleanup..."
-          
+
           # Get Docker Hub API token
           TOKEN=$(curl -s -X POST \
             -H "Content-Type: application/json" \
             -d "{\"username\":\"${{ secrets.DOCKER_USERNAME }}\",\"password\":\"${{ secrets.DOCKER_PASSWORD }}\"}" \
             https://hub.docker.com/v2/users/login/ | jq -r '.token // empty')
-          
+
           if [ -z "$TOKEN" ]; then
             echo " Failed to authenticate with Docker Hub"
             exit 1
           fi
-          
+
           echo " Authenticated with Docker Hub"
-          
+
           # List all build tags (build-* pattern) sorted by number (newest first)
           TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
             "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/?page_size=100" \
             2>/dev/null | jq -r '.results[] | select(.name | startswith("build-")) | .name' | sort -rn -t- -k2)
-          
+
           COUNT=$(echo "$TAGS" | grep -c . || echo 0)
           echo "Found $COUNT build tags"
-          
+
           # Keep only latest 2 build tags for main branch, delete others
           if [ $COUNT -gt 2 ]; then
             echo "Cleaning up old main branch images (keeping 2 most recent)..."
