@@ -31,33 +31,24 @@ jobs:
 
       - name: Set Build Tag
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_PREFIX="${{ github.event.inputs.tag_prefix }}"
-            BRANCH_NAME="${{ github.event.inputs.branch }}"
-            if [ -z "$BRANCH_NAME" ]; then
-              BRANCH_NAME="${{ github.ref_name }}"
-            fi
-            # Sanitize branch name (replace / with -)
-            BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's|/|-|g')
-            echo "BUILD_TAG=${TAG_PREFIX}-${BRANCH_NAME}-${{ github.run_number }}" >> $GITHUB_ENV
-            echo "IS_MANUAL=true" >> $GITHUB_ENV
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            # PR builds get pr- prefix
-            echo "BUILD_TAG=pr-${{ github.run_number }}" >> $GITHUB_ENV
-            echo "IS_MANUAL=false" >> $GITHUB_ENV
-          else
-            # Main branch builds get build- prefix
-            echo "BUILD_TAG=build-${{ github.run_number }}" >> $GITHUB_ENV
+          # All builds use the same format: build-{run_number}
+          echo "BUILD_TAG=build-${{ github.run_number }}" >> $GITHUB_ENV
 
-            echo "IS_MANUAL=false" >> $GITHUB_ENV
+          # Determine build type
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "BUILD_TYPE=manual" >> $GITHUB_ENV
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "BUILD_TYPE=pr" >> $GITHUB_ENV
+          else
+            echo "BUILD_TYPE=main" >> $GITHUB_ENV
           fi
 
       - name: Display Build Info
         run: |
-          echo "Build Tag: ${{ env.BUILD_TAG }}"
-          echo "Event: ${{ github.event_name }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "Is Manual: ${{ env.IS_MANUAL }}"
+          echo "📦 Build Tag: ${{ env.BUILD_TAG }}"
+          echo "📝 Build Type: ${{ env.BUILD_TYPE }}"
+          echo "🔗 Event: ${{ github.event_name }}"
+          echo "🌿 Branch: ${{ github.ref_name }}"
 
       - name: Login to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
@@ -80,29 +71,6 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: docker push ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:latest
 
-      # Tag manual builds with their branch name
-      - name: Tag Manual Build
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          BRANCH_NAME="${{ github.event.inputs.branch }}"
-          if [ -z "$BRANCH_NAME" ]; then
-            BRANCH_NAME="${{ github.ref_name }}"
-          fi
-          BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's|/|-|g')
-          docker tag ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:${{ env.BUILD_TAG }} \
-                     ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:${BRANCH_NAME}
-
-      - name: Push Manual Build Tag
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          BRANCH_NAME="${{ github.event.inputs.branch }}"
-          if [ -z "$BRANCH_NAME" ]; then
-            BRANCH_NAME="${{ github.ref_name }}"
-          fi
-          BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's|/|-|g')
-          docker push ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:${BRANCH_NAME}
-          docker push ${{ secrets.DOCKER_USERNAME }}/gmail-cleaner:${{ env.BUILD_TAG }}
-
       # Cleanup old images - PR builds (keep only current)
       - name: Cleanup PR Build Images
         if: github.event_name == 'pull_request'
@@ -122,23 +90,24 @@ jobs:
 
           echo "✅ Authenticated with Docker Hub"
 
-          # List all PR tags (pr-* pattern) sorted by build number (newest first)
-          TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
+          # For PR builds: List all build-* tags except 'latest'
+          # Get all build tags, sort by number (newest first), then filter out 'latest'
+          ALL_TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
             "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/?page_size=100" \
-            2>/dev/null | jq -r '.results[] | select(.name | startswith("pr-")) | .name' | sort -rn -t- -k2)
+            2>/dev/null | jq -r '.results[] | select(.name | startswith("build-")) | .name' | sort -rn -t- -k2)
 
-          if [ -z "$TAGS" ]; then
-            echo "ℹ️ No PR build tags found"
+          if [ -z "$ALL_TAGS" ]; then
+            echo "ℹ️ No build tags found for this PR"
             exit 0
           fi
 
-          COUNT=$(echo "$TAGS" | wc -l)
-          echo "Found $COUNT PR build tag(s)"
+          COUNT=$(echo "$ALL_TAGS" | wc -l)
+          echo "Found $COUNT build tag(s) from this PR"
 
-          # Keep only the latest PR build, delete older ones
+          # Keep only the latest build, delete all older ones
           if [ "$COUNT" -gt 1 ]; then
             echo "🧹 Cleaning up old PR builds (keeping only the latest)..."
-            TAGS_TO_DELETE=$(echo "$TAGS" | tail -n +2)
+            TAGS_TO_DELETE=$(echo "$ALL_TAGS" | tail -n +2)
             
             while IFS= read -r TAG; do
               if [ -n "$TAG" ]; then
@@ -158,11 +127,11 @@ jobs:
             echo "✅ No cleanup needed for PR builds (only $COUNT build)"
           fi
 
-      # Cleanup old images - Main branch (keep 2 versions: current + previous)
+      # Cleanup old images - Main branch (keep 2 build tags + latest tag)
       - name: Cleanup Main Branch Images
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          echo "Starting main branch build image cleanup..."
+          echo "🧹 Starting main branch build image cleanup..."
 
           # Get Docker Hub API token
           TOKEN=$(curl -s -X POST \
@@ -171,39 +140,46 @@ jobs:
             https://hub.docker.com/v2/users/login/ | jq -r '.token // empty')
 
           if [ -z "$TOKEN" ]; then
-            echo " Failed to authenticate with Docker Hub"
+            echo "❌ Failed to authenticate with Docker Hub"
             exit 1
           fi
 
-          echo " Authenticated with Docker Hub"
+          echo "✅ Authenticated with Docker Hub"
 
           # List all build tags (build-* pattern) sorted by number (newest first)
-          TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
+          ALL_TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
             "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/?page_size=100" \
             2>/dev/null | jq -r '.results[] | select(.name | startswith("build-")) | .name' | sort -rn -t- -k2)
 
-          COUNT=$(echo "$TAGS" | grep -c . || echo 0)
+          if [ -z "$ALL_TAGS" ]; then
+            echo "ℹ️ No build tags found"
+            exit 0
+          fi
+
+          COUNT=$(echo "$ALL_TAGS" | wc -l)
           echo "Found $COUNT build tags"
 
           # Keep only latest 2 build tags for main branch, delete others
-          if [ $COUNT -gt 2 ]; then
-            echo "Cleaning up old main branch images (keeping 2 most recent)..."
-            TAGS_TO_DELETE=$(echo "$TAGS" | tail -n +3)
+          if [ "$COUNT" -gt 2 ]; then
+            echo "🧹 Cleaning up old main branch images (keeping 2 most recent)..."
+            TAGS_TO_DELETE=$(echo "$ALL_TAGS" | tail -n +3)
             
-            echo "$TAGS_TO_DELETE" | while read TAG; do
-              echo "  Deleting: $TAG"
-              STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
-                -H "Authorization: JWT $TOKEN" \
-                "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/")
-              
-              if [ "$STATUS" = "204" ] || [ "$STATUS" = "200" ]; then
-                echo "  Deleted: $TAG"
-              else
-                echo " Failed to delete $TAG (HTTP $STATUS)"
+            while IFS= read -r TAG; do
+              if [ -n "$TAG" ]; then
+                echo "  Deleting: $TAG"
+                STATUS=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
+                  -H "Authorization: JWT $TOKEN" \
+                  "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/gmail-cleaner/tags/$TAG/")
+                
+                if [ "$STATUS" = "204" ] || [ "$STATUS" = "200" ]; then
+                  echo "  ✅ Deleted: $TAG"
+                else
+                  echo "  ⚠️ Failed to delete $TAG (HTTP $STATUS)"
+                fi
               fi
             done
           else
-            echo "No cleanup needed for main branch (only $COUNT builds)"
+            echo "✅ No cleanup needed for main branch (only $COUNT builds, keeping 2 + latest)"
           fi
 
       - name: Trigger Render Deploy (main only)
